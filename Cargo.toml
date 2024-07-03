@@ -1,0 +1,15 @@
+[package]
+name = "sphere-bounds-experiment"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+arwa = { path = "../rudo/arwa" }
+bytemuck = { version = "1.16", features = ["derive"] }
+console_error_panic_hook = "0.1.7"
+empa = { version = "0.1.0", path = "../glitz/crates/empa", features = ["arwa", "bytemuck"] }
+empa-glam = { version = "0.1.0", path = "../glitz/crates/empa_glam" }
+futures = "0.3.24"
+glam = "^0.24"
+hexasphere = "9.1.0"
