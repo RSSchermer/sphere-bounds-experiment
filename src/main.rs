@@ -4,8 +4,11 @@ pub mod bounding_rects_pass;
 pub mod camera;
 pub mod camera_controller;
 pub mod compute_bounds_pass;
+pub mod compute_long_axis_pass;
 pub mod grid;
 pub mod grids_pass;
+pub mod line;
+pub mod long_axes_pass;
 pub mod mouse_movement_tracker;
 pub mod optics;
 pub mod renderer;
@@ -36,7 +39,9 @@ use glam::{Quat, Vec3};
 use crate::camera::{Camera, CameraDescriptor};
 use crate::camera_controller::CameraController;
 use crate::compute_bounds_pass::{ComputeSphereBounds, ComputeSphereBoundsInput};
+use crate::compute_long_axis_pass::{ComputeLongAxesPass, ComputeLongAxesPassInput};
 use crate::grid::{Grid, GridDescriptor};
+use crate::line::Line;
 use crate::optics::{Lens, PerspectiveLens};
 use crate::renderer::{Renderer, RendererConfig};
 use crate::sphere::Sphere;
@@ -74,8 +79,8 @@ async fn render() -> Result<(), Box<dyn Error>> {
 
     let mut camera = Camera::from(CameraDescriptor {
         lens: PerspectiveLens {
-            fov_vertical: 0.3 * PI,
-            aspect_ratio: 1.0,
+            fov_vertical: 0.45 * PI,
+            aspect_ratio: canvas.width() as f32 / canvas.height() as f32,
             frustum_near: 0.01,
             frustum_far: 100.0,
         },
@@ -101,12 +106,13 @@ async fn render() -> Result<(), Box<dyn Error>> {
     )
     .await;
     let compute_sphere_bounds = ComputeSphereBounds::init(device.clone()).await;
+    let compute_long_axes = ComputeLongAxesPass::init(device.clone()).await;
 
     let sphere_data = SphereData::new(&device, 20);
     let spheres: Buffer<[Sphere], _> = device.create_buffer(
         [Sphere {
-            origin: abi::Vec3(0.0, 0.0, 3.0),
-            radius: 1.00,
+            origin: abi::Vec3(0.0, 0.0, 0.0),
+            radius: 1.0,
         }],
         buffer::Usages::storage_binding(),
     );
@@ -115,6 +121,11 @@ async fn render() -> Result<(), Box<dyn Error>> {
     let sphere_bounds = Rc::new(sphere_bounds);
 
     let sphere_bounds_readback = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
+
+    let long_axes: Buffer<[Line], _> = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::storage_binding().and_copy_src());
+    let long_axes = Rc::new(long_axes);
+
+    let long_axes_readback = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
 
     let log_bounds_button: HtmlButtonElement = document.query_selector(&selector!("#log_bounds_button")).ok_or("log bounds button not found")?.try_into()?;
     let mut on_log_bounds = log_bounds_button.on_click();
@@ -140,6 +151,30 @@ async fn render() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    let log_long_axes_button: HtmlButtonElement = document.query_selector(&selector!("#log_long_axes_button")).ok_or("log axes button not found")?.try_into()?;
+    let mut on_log_long_axes = log_long_axes_button.on_click();
+
+    arwa::spawn_local({
+        let device = device.clone();
+        let long_axes = long_axes.clone();
+
+        async move {
+            while let Some(_) = on_log_long_axes.next().await {
+                let mut encoder = device.create_command_encoder();
+
+                encoder = encoder.copy_buffer_to_buffer_slice(long_axes.view(), long_axes_readback.view());
+
+                device.queue().submit(encoder.finish());
+
+                long_axes_readback.map_read().await.unwrap();
+
+                console::log!(format!("{:#?}", &*long_axes_readback.mapped()));
+
+                long_axes_readback.unmap();
+            }
+        }
+    });
+
     loop {
         window.request_animation_frame().await;
 
@@ -153,9 +188,15 @@ async fn render() -> Result<(), Box<dyn Error>> {
             spheres: spheres.view(),
             sphere_bounds: sphere_bounds.view(),
         });
+        encoder = compute_long_axes.encode(encoder, ComputeLongAxesPassInput {
+            world_to_camera: camera.world_to_camera().to_abi(),
+            camera_to_clip: camera.lens().camera_to_clip().to_abi(),
+            spheres: spheres.view(),
+            long_axes: long_axes.view(),
+        });
 
         device.queue().submit(encoder.finish());
 
-        renderer.render(&sphere_data, spheres.view(), sphere_bounds.view(), &camera).await;
+        renderer.render(&sphere_data, spheres.view(), sphere_bounds.view(), long_axes.view(), &camera).await;
     }
 }

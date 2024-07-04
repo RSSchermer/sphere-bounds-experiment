@@ -18,6 +18,8 @@ use crate::bounding_rects_pass::BoundingRectsPass;
 use crate::camera::Camera;
 use crate::grid::Grid;
 use crate::grids_pass::GridsPass;
+use crate::line::Line;
+use crate::long_axes_pass::LongAxesPass;
 use crate::optics::Lens;
 use crate::sky_gradient_pass::SkyGradientPass;
 use crate::sphere::Sphere;
@@ -42,6 +44,7 @@ pub struct Renderer {
     sky_gradient_pass: SkyGradientPass,
     spheres_pass: SpheresPass,
     bounding_rects_pass: BoundingRectsPass,
+    long_axes_pass: LongAxesPass,
 }
 
 impl Renderer {
@@ -82,9 +85,10 @@ impl Renderer {
         );
         let init_spheres_pass = SpheresPass::init(device.clone());
         let init_bounding_rects_pass = BoundingRectsPass::init(device.clone());
+        let init_long_axes_pass = LongAxesPass::init(device.clone());
 
-        let (grids_pass, sky_gradient_pass, spheres_pass, bounding_rects_pass) =
-            join!(init_grids_pass, init_sky_gradient_pass, init_spheres_pass, init_bounding_rects_pass).await;
+        let (grids_pass, sky_gradient_pass, spheres_pass, bounding_rects_pass, long_axes_pass) =
+            join!(init_grids_pass, init_sky_gradient_pass, init_spheres_pass, init_bounding_rects_pass, init_long_axes_pass).await;
 
         Renderer {
             device,
@@ -94,6 +98,7 @@ impl Renderer {
             sky_gradient_pass,
             spheres_pass,
             bounding_rects_pass,
+            long_axes_pass,
         }
     }
 
@@ -102,6 +107,7 @@ impl Renderer {
         sphere_data: &SphereData,
         spheres: buffer::View<'_, [Sphere], impl buffer::StorageBinding>,
         sphere_bounds: buffer::View<'_, [SphereBounds], impl buffer::StorageBinding>,
+        long_axes: buffer::View<'_, [Line], impl buffer::StorageBinding>,
         camera: &Camera<impl Lens>,
     ) {
         let world_to_clip = camera.world_to_clip().to_abi();
@@ -115,8 +121,9 @@ impl Renderer {
             .spheres_pass
             .render_bundle(world_to_clip, sphere_data, spheres);
         let bounding_rects_bundle = self.bounding_rects_pass.render_bundle(sphere_bounds);
+        let long_axes_bundle = self.long_axes_pass.render_bundle(long_axes);
 
-        let mut encoder = self.device.create_command_encoder();
+        let encoder = self.device.create_command_encoder();
 
         let mut render_pass_encoder =
             encoder.begin_render_pass(RenderPassDescriptor::new(&RenderTarget {
@@ -146,6 +153,10 @@ impl Renderer {
 
         if let Some(bounding_rects_bundle) = bounding_rects_bundle {
             render_pass_encoder = render_pass_encoder.execute_bundle(&bounding_rects_bundle);
+        }
+
+        if let Some(long_axes_bundle) = long_axes_bundle {
+            render_pass_encoder = render_pass_encoder.execute_bundle(&long_axes_bundle);
         }
 
         let command_buffer = render_pass_encoder.end().finish();

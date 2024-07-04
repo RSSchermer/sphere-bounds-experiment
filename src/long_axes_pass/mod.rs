@@ -1,49 +1,36 @@
-use empa::buffer::{Buffer, Storage, Uniform};
+use empa::buffer::{Buffer, BufferUsages, Storage};
 use empa::command::{
     DrawIndexed, DrawIndexedCommandEncoder, RenderBundleEncoderDescriptor, RenderStateEncoder,
     ResourceBindingCommandEncoder,
 };
 use empa::device::Device;
-use empa::render_pipeline::{
-    ColorOutput, ColorWrite,
-    DepthStencilTest, FragmentStageBuilder, IndexAny, PrimitiveAssembly, RenderPipeline,
-    RenderPipelineDescriptorBuilder, VertexStageBuilder,
-};
-use empa::resource_binding::BindGroupLayout;
+use empa::render_pipeline::{ColorOutput, ColorWrite, DepthStencilTest, FragmentStageBuilder, Index32, PrimitiveAssembly, RenderPipeline, RenderPipelineDescriptorBuilder, VertexStageBuilder};
 use empa::shader_module::{shader_source, ShaderSource};
 use empa::texture::format::{depth24plus, rgba8unorm};
-use empa::type_flag::{O, X};
-use empa::{abi, buffer, CompareFunction};
+use empa::{buffer};
+use empa::resource_binding::BindGroupLayout;
 
+use crate::line::Line;
 use crate::renderer::{MainPassBundle, MainPassLayout};
-use crate::sphere::Sphere;
-use crate::sphere_data::{SphereData, Vertex};
 
 const SHADER: ShaderSource = shader_source!("shader.wgsl");
-
-#[derive(empa::abi::Sized, Clone, Copy, Debug)]
-struct Uniforms {
-    world_to_clip: abi::Mat4x4,
-}
 
 #[derive(empa::resource_binding::Resources)]
 struct Resources<'a> {
     #[resource(binding = 0, visibility = "VERTEX | FRAGMENT")]
-    uniform_buffer: Uniform<'a, Uniforms>,
-    #[resource(binding = 1, visibility = "VERTEX | FRAGMENT")]
-    spheres: Storage<'a, [Sphere]>,
+    long_axes: Storage<'a, [Line]>,
 }
 
 type ResourcesLayout = <Resources<'static> as empa::resource_binding::Resources>::Layout;
 
-pub struct SpheresPass {
+pub struct LongAxesPass {
     device: Device,
     bind_group_layout: BindGroupLayout<ResourcesLayout>,
-    pipeline: RenderPipeline<MainPassLayout, Vertex, IndexAny, (ResourcesLayout,)>,
-    uniforms: Buffer<Uniforms, buffer::Usages<O, O, O, X, O, O, X, O, O, O>>,
+    pipeline: RenderPipeline<MainPassLayout, (), Index32, (ResourcesLayout,)>,
+    indices: Buffer<[u32], BufferUsages!(Index)>
 }
 
-impl SpheresPass {
+impl LongAxesPass {
     pub async fn init(device: Device) -> Self {
         let shader = device.create_shader_module(&SHADER);
 
@@ -54,10 +41,10 @@ impl SpheresPass {
             .create_render_pipeline(
                 &RenderPipelineDescriptorBuilder::begin()
                     .layout(&pipeline_layout)
-                    .primitive_assembly(PrimitiveAssembly::triangle_list())
+                    .primitive_assembly(PrimitiveAssembly::line_strip::<Index32>())
                     .vertex(
                         VertexStageBuilder::begin(&shader, "vert_main")
-                            .vertex_layout::<Vertex>()
+                            .vertex_layout::<()>()
                             .finish(),
                     )
                     .fragment(
@@ -68,51 +55,30 @@ impl SpheresPass {
                             })
                             .finish(),
                     )
-                    .depth_stencil_test(
-                        DepthStencilTest::read_write::<depth24plus>()
-                            .depth_compare(CompareFunction::LessEqual),
-                    )
+                    .depth_stencil_test(DepthStencilTest::read_write::<depth24plus>())
                     .finish(),
             )
             .await;
 
-        let uniforms = device.create_buffer(
-            Uniforms {
-                world_to_clip: abi::Mat4x4::default(),
-            },
-            buffer::Usages::uniform_binding().and_copy_dst(),
-        );
+        let indices = device.create_buffer([0, 1], buffer::Usages::index());
 
-        SpheresPass {
+        LongAxesPass {
             device,
             bind_group_layout,
             pipeline,
-            uniforms,
+            indices,
         }
     }
 
-    pub fn render_bundle<U>(
-        &self,
-        world_to_clip: abi::Mat4x4,
-        sphere_data: &SphereData,
-        spheres: buffer::View<[Sphere], U>,
-    ) -> Option<MainPassBundle>
-    where
-        U: buffer::StorageBinding,
-    {
-        if spheres.len() == 0 {
+    pub fn render_bundle(&self, long_axes: buffer::View<[Line], impl buffer::StorageBinding>) -> Option<MainPassBundle> {
+        if long_axes.len() == 0 {
             return None;
         }
-
-        self.device
-            .queue()
-            .write_buffer(self.uniforms.view(), &Uniforms { world_to_clip });
 
         let bind_group = self.device.create_bind_group(
             &self.bind_group_layout,
             Resources {
-                uniform_buffer: self.uniforms.uniform(),
-                spheres: spheres.storage(),
+                long_axes: long_axes.storage(),
             },
         );
 
@@ -123,12 +89,11 @@ impl SpheresPass {
 
         let bundle = render_bundle_encoder
             .set_pipeline(&self.pipeline)
-            .set_vertex_buffers(&sphere_data.vertices)
-            .set_index_buffer(&sphere_data.indices)
+            .set_index_buffer(&self.indices)
             .set_bind_groups(&bind_group)
             .draw_indexed(DrawIndexed {
-                index_count: sphere_data.indices.len() as u32,
-                instance_count: spheres.len() as u32,
+                index_count: self.indices.len() as u32,
+                instance_count: long_axes.len() as u32,
                 first_index: 0,
                 base_vertex: 0,
                 first_instance: 0,

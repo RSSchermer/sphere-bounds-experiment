@@ -9,9 +9,9 @@ use empa::device::{Device};
 use empa::resource_binding::BindGroupLayout;
 use empa::shader_module::{shader_source, ShaderSource};
 use empa::{abi, buffer};
+use crate::line::Line;
 
 use crate::sphere::Sphere;
-use crate::sphere_bounds::SphereBounds;
 
 const GROUP_SIZE: u32 = 256;
 
@@ -30,25 +30,25 @@ struct Resources<'a> {
     #[resource(binding = 1, visibility = "COMPUTE")]
     spheres: Storage<'a, [Sphere]>,
     #[resource(binding = 2, visibility = "COMPUTE")]
-    sphere_bounds: Storage<'a, [SphereBounds], ReadWrite>,
+    long_axes: Storage<'a, [Line], ReadWrite>,
 }
 
 type ResourcesLayout = <Resources<'static> as empa::resource_binding::Resources>::Layout;
 
-pub struct ComputeSphereBoundsInput<'a, U0, U1> {
+pub struct ComputeLongAxesPassInput<'a, U0, U1> {
     pub world_to_camera: abi::Mat4x4,
     pub camera_to_clip: abi::Mat4x4,
     pub spheres: buffer::View<'a, [Sphere], U0>,
-    pub sphere_bounds: buffer::View<'a, [SphereBounds], U1>,
+    pub long_axes: buffer::View<'a, [Line], U1>,
 }
 
-pub struct ComputeSphereBounds {
+pub struct ComputeLongAxesPass {
     device: Device,
     bind_group_layout: BindGroupLayout<ResourcesLayout>,
     pipeline: ComputePipeline<(ResourcesLayout,)>,
 }
 
-impl ComputeSphereBounds {
+impl ComputeLongAxesPass {
     pub async fn init(device: Device) -> Self {
         let shader = device.create_shader_module(&SHADER);
 
@@ -64,7 +64,7 @@ impl ComputeSphereBounds {
             )
             .await;
 
-        ComputeSphereBounds {
+        ComputeLongAxesPass {
             device,
             bind_group_layout,
             pipeline,
@@ -74,13 +74,10 @@ impl ComputeSphereBounds {
     pub fn encode(
         &self,
         encoder: CommandEncoder,
-        input: ComputeSphereBoundsInput<impl StorageBinding, impl StorageBinding>,
+        input: ComputeLongAxesPassInput<impl StorageBinding, impl StorageBinding>,
     ) -> CommandEncoder {
-        let ComputeSphereBoundsInput {
-            world_to_camera,
-            camera_to_clip,
-            spheres,
-            sphere_bounds,
+        let ComputeLongAxesPassInput {
+            world_to_camera, camera_to_clip, spheres, long_axes
         } = input;
 
         let uniforms = self.device.create_buffer(
@@ -98,7 +95,7 @@ impl ComputeSphereBounds {
             Resources {
                 uniforms: uniforms.uniform(),
                 spheres: spheres.storage(),
-                sphere_bounds: sphere_bounds.storage(),
+                long_axes: long_axes.storage(),
             },
         );
 

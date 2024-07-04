@@ -1,21 +1,17 @@
-use empa::buffer::{Buffer, BufferUsages, Storage, Uniform};
+use empa::buffer::{Buffer, BufferUsages, Storage};
 use empa::command::{
     DrawIndexed, DrawIndexedCommandEncoder, RenderBundleEncoderDescriptor, RenderStateEncoder,
     ResourceBindingCommandEncoder,
 };
 use empa::device::Device;
-use empa::render_pipeline::{ColorOutput, ColorWrite, DepthStencilTest, FragmentStageBuilder, Index16, Index32, IndexAny, PrimitiveAssembly, RenderPipeline, RenderPipelineDescriptorBuilder, VertexStageBuilder};
+use empa::render_pipeline::{ColorOutput, ColorWrite, DepthStencilTest, FragmentStageBuilder, Index32, PrimitiveAssembly, RenderPipeline, RenderPipelineDescriptorBuilder, VertexStageBuilder};
 use empa::shader_module::{shader_source, ShaderSource};
 use empa::texture::format::{depth24plus, rgba8unorm};
-use empa::type_flag::{O, X};
-use empa::{abi, buffer, CompareFunction};
+use empa::{buffer};
 use empa::resource_binding::BindGroupLayout;
-use glam::{Mat4, Vec3, Vec4};
 
-use crate::grid::Grid;
 use crate::renderer::{MainPassBundle, MainPassLayout};
 use crate::sphere_bounds::SphereBounds;
-use crate::sphere_data::Vertex;
 
 const SHADER: ShaderSource = shader_source!("shader.wgsl");
 
