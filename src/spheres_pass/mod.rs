@@ -5,9 +5,8 @@ use empa::command::{
 };
 use empa::device::Device;
 use empa::render_pipeline::{
-    ColorOutput, ColorWrite,
-    DepthStencilTest, FragmentStageBuilder, IndexAny, PrimitiveAssembly, RenderPipeline,
-    RenderPipelineDescriptorBuilder, VertexStageBuilder,
+    ColorOutput, ColorWrite, DepthStencilTest, FragmentStageBuilder, IndexAny, PrimitiveAssembly,
+    RenderPipeline, RenderPipelineDescriptorBuilder, VertexStageBuilder,
 };
 use empa::resource_binding::BindGroupLayout;
 use empa::shader_module::{shader_source, ShaderSource};

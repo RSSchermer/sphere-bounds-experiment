@@ -3,13 +3,16 @@
 pub mod bounding_rects_pass;
 pub mod camera;
 pub mod camera_controller;
+pub mod circle;
 pub mod compute_bounds_pass;
 pub mod compute_long_axis_pass;
+pub mod compute_occluder_circles_pass;
 pub mod grid;
 pub mod grids_pass;
 pub mod line;
 pub mod long_axes_pass;
 pub mod mouse_movement_tracker;
+pub mod occluder_circles_pass;
 pub mod optics;
 pub mod renderer;
 pub mod sky_gradient_pass;
@@ -21,25 +24,29 @@ pub mod spheres_pass;
 use std::error::Error;
 use std::f32::consts::PI;
 use std::rc::Rc;
-use arwa::console;
 
+use arwa::console;
 use arwa::dom::{selector, ParentNode};
 use arwa::html::{HtmlButtonElement, HtmlCanvasElement};
 use arwa::ui::UiEventTarget;
 use arwa::window::window;
 use empa::adapter::Feature;
 use empa::arwa::{NavigatorExt, PowerPreference, RequestAdapterOptions};
-use empa::{abi, buffer};
 use empa::buffer::{Buffer, BufferUsages};
 use empa::device::DeviceDescriptor;
+use empa::{abi, buffer};
 use empa_glam::ToAbi;
 use futures::{FutureExt, StreamExt};
 use glam::{Quat, Vec3};
 
 use crate::camera::{Camera, CameraDescriptor};
 use crate::camera_controller::CameraController;
+use crate::circle::Circle;
 use crate::compute_bounds_pass::{ComputeSphereBounds, ComputeSphereBoundsInput};
 use crate::compute_long_axis_pass::{ComputeLongAxesPass, ComputeLongAxesPassInput};
+use crate::compute_occluder_circles_pass::{
+    ComputeOccluderCirclesPass, ComputeOccluderCirclesPassInput,
+};
 use crate::grid::{Grid, GridDescriptor};
 use crate::line::Line;
 use crate::optics::{Lens, PerspectiveLens};
@@ -107,6 +114,7 @@ async fn render() -> Result<(), Box<dyn Error>> {
     .await;
     let compute_sphere_bounds = ComputeSphereBounds::init(device.clone()).await;
     let compute_long_axes = ComputeLongAxesPass::init(device.clone()).await;
+    let compute_occluder_circles = ComputeOccluderCirclesPass::init(device.clone()).await;
 
     let sphere_data = SphereData::new(&device, 20);
     let spheres: Buffer<[Sphere], _> = device.create_buffer(
@@ -117,17 +125,37 @@ async fn render() -> Result<(), Box<dyn Error>> {
         buffer::Usages::storage_binding(),
     );
 
-    let sphere_bounds: Buffer<[SphereBounds], _> = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::storage_binding().and_copy_src());
+    let sphere_bounds: Buffer<[SphereBounds], _> = device.create_slice_buffer_zeroed(
+        spheres.len(),
+        buffer::Usages::storage_binding().and_copy_src(),
+    );
     let sphere_bounds = Rc::new(sphere_bounds);
 
-    let sphere_bounds_readback = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
+    let sphere_bounds_readback =
+        device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
 
-    let long_axes: Buffer<[Line], _> = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::storage_binding().and_copy_src());
+    let long_axes: Buffer<[Line], _> = device.create_slice_buffer_zeroed(
+        spheres.len(),
+        buffer::Usages::storage_binding().and_copy_src(),
+    );
     let long_axes = Rc::new(long_axes);
 
-    let long_axes_readback = device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
+    let long_axes_readback =
+        device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
 
-    let log_bounds_button: HtmlButtonElement = document.query_selector(&selector!("#log_bounds_button")).ok_or("log bounds button not found")?.try_into()?;
+    let occluder_circles: Buffer<[Circle], _> = device.create_slice_buffer_zeroed(
+        spheres.len(),
+        buffer::Usages::storage_binding().and_copy_src(),
+    );
+    let occluder_circles = Rc::new(occluder_circles);
+
+    let occluder_circles_readback =
+        device.create_slice_buffer_zeroed(spheres.len(), buffer::Usages::map_read().and_copy_dst());
+
+    let log_bounds_button: HtmlButtonElement = document
+        .query_selector(&selector!("#log_bounds_button"))
+        .ok_or("log bounds button not found")?
+        .try_into()?;
     let mut on_log_bounds = log_bounds_button.on_click();
 
     arwa::spawn_local({
@@ -138,7 +166,10 @@ async fn render() -> Result<(), Box<dyn Error>> {
             while let Some(_) = on_log_bounds.next().await {
                 let mut encoder = device.create_command_encoder();
 
-                encoder = encoder.copy_buffer_to_buffer_slice(sphere_bounds.view(), sphere_bounds_readback.view());
+                encoder = encoder.copy_buffer_to_buffer_slice(
+                    sphere_bounds.view(),
+                    sphere_bounds_readback.view(),
+                );
 
                 device.queue().submit(encoder.finish());
 
@@ -151,7 +182,10 @@ async fn render() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let log_long_axes_button: HtmlButtonElement = document.query_selector(&selector!("#log_long_axes_button")).ok_or("log axes button not found")?.try_into()?;
+    let log_long_axes_button: HtmlButtonElement = document
+        .query_selector(&selector!("#log_long_axes_button"))
+        .ok_or("log axes button not found")?
+        .try_into()?;
     let mut on_log_long_axes = log_long_axes_button.on_click();
 
     arwa::spawn_local({
@@ -162,7 +196,8 @@ async fn render() -> Result<(), Box<dyn Error>> {
             while let Some(_) = on_log_long_axes.next().await {
                 let mut encoder = device.create_command_encoder();
 
-                encoder = encoder.copy_buffer_to_buffer_slice(long_axes.view(), long_axes_readback.view());
+                encoder = encoder
+                    .copy_buffer_to_buffer_slice(long_axes.view(), long_axes_readback.view());
 
                 device.queue().submit(encoder.finish());
 
@@ -175,6 +210,36 @@ async fn render() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    let log_occluder_circles_button: HtmlButtonElement = document
+        .query_selector(&selector!("#log_occluder_circles_button"))
+        .ok_or("log occluder circles button not found")?
+        .try_into()?;
+    let mut on_log_occluder_circles = log_occluder_circles_button.on_click();
+
+    arwa::spawn_local({
+        let device = device.clone();
+        let occluder_circles = occluder_circles.clone();
+
+        async move {
+            while let Some(_) = on_log_occluder_circles.next().await {
+                let mut encoder = device.create_command_encoder();
+
+                encoder = encoder.copy_buffer_to_buffer_slice(
+                    occluder_circles.view(),
+                    occluder_circles_readback.view(),
+                );
+
+                device.queue().submit(encoder.finish());
+
+                occluder_circles_readback.map_read().await.unwrap();
+
+                console::log!(format!("{:#?}", &*occluder_circles_readback.mapped()));
+
+                occluder_circles_readback.unmap();
+            }
+        }
+    });
+
     loop {
         window.request_animation_frame().await;
 
@@ -182,21 +247,45 @@ async fn render() -> Result<(), Box<dyn Error>> {
 
         let mut encoder = device.create_command_encoder();
 
-        encoder = compute_sphere_bounds.encode(encoder, ComputeSphereBoundsInput {
-            world_to_camera: camera.world_to_camera().to_abi(),
-            camera_to_clip: camera.lens().camera_to_clip().to_abi(),
-            spheres: spheres.view(),
-            sphere_bounds: sphere_bounds.view(),
-        });
-        encoder = compute_long_axes.encode(encoder, ComputeLongAxesPassInput {
-            world_to_camera: camera.world_to_camera().to_abi(),
-            camera_to_clip: camera.lens().camera_to_clip().to_abi(),
-            spheres: spheres.view(),
-            long_axes: long_axes.view(),
-        });
+        encoder = compute_sphere_bounds.encode(
+            encoder,
+            ComputeSphereBoundsInput {
+                world_to_camera: camera.world_to_camera().to_abi(),
+                camera_to_clip: camera.lens().camera_to_clip().to_abi(),
+                spheres: spheres.view(),
+                sphere_bounds: sphere_bounds.view(),
+            },
+        );
+        encoder = compute_long_axes.encode(
+            encoder,
+            ComputeLongAxesPassInput {
+                world_to_camera: camera.world_to_camera().to_abi(),
+                camera_to_clip: camera.lens().camera_to_clip().to_abi(),
+                spheres: spheres.view(),
+                long_axes: long_axes.view(),
+            },
+        );
+        encoder = compute_occluder_circles.encode(
+            encoder,
+            ComputeOccluderCirclesPassInput {
+                world_to_camera: camera.world_to_camera().to_abi(),
+                camera_to_clip: camera.lens().camera_to_clip().to_abi(),
+                spheres: spheres.view(),
+                occluder_circles: occluder_circles.view(),
+            },
+        );
 
         device.queue().submit(encoder.finish());
 
-        renderer.render(&sphere_data, spheres.view(), sphere_bounds.view(), long_axes.view(), &camera).await;
+        renderer
+            .render(
+                &sphere_data,
+                spheres.view(),
+                sphere_bounds.view(),
+                long_axes.view(),
+                occluder_circles.view(),
+                &camera,
+            )
+            .await;
     }
 }

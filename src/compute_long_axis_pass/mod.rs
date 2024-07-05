@@ -5,12 +5,12 @@ use empa::command::{CommandEncoder, DispatchWorkgroups, ResourceBindingCommandEn
 use empa::compute_pipeline::{
     ComputePipeline, ComputePipelineDescriptorBuilder, ComputeStageBuilder,
 };
-use empa::device::{Device};
+use empa::device::Device;
 use empa::resource_binding::BindGroupLayout;
 use empa::shader_module::{shader_source, ShaderSource};
 use empa::{abi, buffer};
-use crate::line::Line;
 
+use crate::line::Line;
 use crate::sphere::Sphere;
 
 const GROUP_SIZE: u32 = 256;
@@ -77,7 +77,10 @@ impl ComputeLongAxesPass {
         input: ComputeLongAxesPassInput<impl StorageBinding, impl StorageBinding>,
     ) -> CommandEncoder {
         let ComputeLongAxesPassInput {
-            world_to_camera, camera_to_clip, spheres, long_axes
+            world_to_camera,
+            camera_to_clip,
+            spheres,
+            long_axes,
         } = input;
 
         let uniforms = self.device.create_buffer(

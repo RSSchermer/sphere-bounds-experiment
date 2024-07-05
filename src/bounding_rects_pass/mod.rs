@@ -1,14 +1,17 @@
+use empa::buffer;
 use empa::buffer::{Buffer, BufferUsages, Storage};
 use empa::command::{
     DrawIndexed, DrawIndexedCommandEncoder, RenderBundleEncoderDescriptor, RenderStateEncoder,
     ResourceBindingCommandEncoder,
 };
 use empa::device::Device;
-use empa::render_pipeline::{ColorOutput, ColorWrite, DepthStencilTest, FragmentStageBuilder, Index32, PrimitiveAssembly, RenderPipeline, RenderPipelineDescriptorBuilder, VertexStageBuilder};
+use empa::render_pipeline::{
+    ColorOutput, ColorWrite, DepthStencilTest, FragmentStageBuilder, Index32, PrimitiveAssembly,
+    RenderPipeline, RenderPipelineDescriptorBuilder, VertexStageBuilder,
+};
+use empa::resource_binding::BindGroupLayout;
 use empa::shader_module::{shader_source, ShaderSource};
 use empa::texture::format::{depth24plus, rgba8unorm};
-use empa::{buffer};
-use empa::resource_binding::BindGroupLayout;
 
 use crate::renderer::{MainPassBundle, MainPassLayout};
 use crate::sphere_bounds::SphereBounds;
@@ -27,7 +30,7 @@ pub struct BoundingRectsPass {
     device: Device,
     bind_group_layout: BindGroupLayout<ResourcesLayout>,
     pipeline: RenderPipeline<MainPassLayout, (), Index32, (ResourcesLayout,)>,
-    indices: Buffer<[u32], BufferUsages!(Index)>
+    indices: Buffer<[u32], BufferUsages!(Index)>,
 }
 
 impl BoundingRectsPass {
@@ -70,7 +73,10 @@ impl BoundingRectsPass {
         }
     }
 
-    pub fn render_bundle(&self, bounding_rects: buffer::View<[SphereBounds], impl buffer::StorageBinding>) -> Option<MainPassBundle> {
+    pub fn render_bundle(
+        &self,
+        bounding_rects: buffer::View<[SphereBounds], impl buffer::StorageBinding>,
+    ) -> Option<MainPassBundle> {
         if bounding_rects.len() == 0 {
             return None;
         }
